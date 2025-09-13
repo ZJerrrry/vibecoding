@@ -1,17 +1,11 @@
 package org.example;
 
-import org.bytedeco.javacv.Frame;
-import org.bytedeco.javacv.Java2DFrameConverter;
-import org.bytedeco.javacv.OpenCVFrameGrabber;
-
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import javafx.concurrent.Task;
-import javafx.embed.swing.SwingFXUtils;
 import javafx.geometry.Insets;
-import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
@@ -21,20 +15,19 @@ import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
-import javafx.scene.text.Text;
 import javafx.stage.Stage;
 
-import java.awt.image.BufferedImage;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 一个完整的JavaFX应用程序，用于Vibecoding，集成了摄像头和交互功能。
+ * 一个完整的JavaFX应用程序，用于Vibecoding，集成了交互功能。
+ * 暂时移除摄像头功能，专注于UI界面的实现。
  */
 public class Main extends Application {
 
     // =================================================================================
-    // 核心数据模型 (与之前类似，但现在将与UI交互)
+    // 核心数据模型
     // =================================================================================
 
     enum UserPresence { FOCUS, COLLABORATE, AWAY }
@@ -43,13 +36,11 @@ public class Main extends Application {
 
     static class UserSessionState {
         public UserPresence presence = UserPresence.COLLABORATE;
-        // ... 其他状态属性
     }
 
     static class PrivacySettings {
         public BackgroundMode backgroundMode = BackgroundMode.NONE;
         public boolean useAvatar = false;
-        // ... 其他隐私设置
     }
 
     static class ClientAudioMixer {
@@ -58,19 +49,18 @@ public class Main extends Application {
             channels.put(channelId, volume);
             System.out.printf("音频混合器: 设置通道 '%s' 的音量为 %.2f%n", channelId, volume);
         }
-        public void addChannel(String id, float initialVolume) { channels.put(id, initialVolume); }
+        public void addChannel(String id, float initialVolume) {
+            channels.put(id, initialVolume);
+        }
     }
 
     // =================================================================================
-    // JavaFX UI组件 和 摄像头相关
+    // JavaFX UI组件
     // =================================================================================
 
-    private OpenCVFrameGrabber grabber;
-    private volatile boolean stopCamera = false;
-    private final ObjectProperty<Image> fxImageProperty = new SimpleObjectProperty<>();
     private Label statusLabel;
     private Label privacyLabel;
-    private Label videoStatusLabel; // 用于在视频区域显示状态
+    private Label videoStatusLabel;
 
     // 实例化核心逻辑类
     private final UserSessionState sessionState = new UserSessionState();
@@ -79,101 +69,72 @@ public class Main extends Application {
 
     @Override
     public void start(Stage primaryStage) {
-        // --- 构建UI ---
+        // 为macOS特别设置，避免常见崩溃问题
+        System.setProperty("glass.gtk.uiScale", "1.0");
+        System.setProperty("prism.lcdtext", "false");
+        System.setProperty("javafx.animation.fullspeed", "true");
+
         primaryStage.setTitle("Vibecoding Helper");
+
+        // 设置窗口属性以确保在macOS上正确显示
+        primaryStage.setAlwaysOnTop(false); // 改为false避免macOS权限问题
+        primaryStage.setResizable(true);
+        primaryStage.centerOnScreen();
 
         BorderPane root = new BorderPane();
         root.setPadding(new Insets(10));
 
-        // 1. 视频显示区域 (左侧)
-        ImageView videoView = new ImageView();
-        videoView.imageProperty().bind(fxImageProperty);
-        videoView.setFitWidth(640);
-        videoView.setFitHeight(480);
-        videoView.setPreserveRatio(true);
-
-        videoStatusLabel = new Label("正在连接摄像头...");
-        videoStatusLabel.setTextFill(Color.WHITE);
-        videoStatusLabel.setFont(Font.font("System", FontWeight.BOLD, 18));
-
-        StackPane videoPane = new StackPane(videoView, videoStatusLabel);
-        videoPane.setStyle("-fx-background-color: black;");
-        root.setCenter(videoPane);
+        // 1. 视频显示区域 (左侧) - 暂时显示占位符
+        createVideoPlaceholder(root);
 
         // 2. 控制面板 (右侧)
         VBox controlPanel = createControlPanel();
         root.setRight(controlPanel);
 
-        // 启动后台任务来初始化并从摄像头捕获图像
-        startCameraTask();
-
         Scene scene = new Scene(root, 1000, 520);
         primaryStage.setScene(scene);
-        primaryStage.show();
 
-        primaryStage.setOnCloseRequest(event -> {
-            // 设置标志以停止后台线程
-            stopCamera = true;
-        });
-    }
-
-    private void startCameraTask() {
-        Task<Void> cameraTask = new Task<>() {
-            @Override
-            protected Void call() {
-                grabber = new OpenCVFrameGrabber(0); // 0 for default camera
-                try {
-                    // 在后台线程启动摄像头
-                    grabber.start();
-                    Platform.runLater(() -> videoStatusLabel.setVisible(false)); // 成功则隐藏状态标签
-
-                    Java2DFrameConverter converter = new Java2DFrameConverter();
-                    while (!stopCamera) {
-                        Frame frame = grabber.grab();
-                        if (frame != null) {
-                            BufferedImage bImage = converter.convert(frame);
-                            if (bImage != null) {
-                                Platform.runLater(() -> fxImageProperty.set(SwingFXUtils.toFXImage(bImage, null)));
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    // 如果启动失败，更新UI提示用户
-                    Platform.runLater(() -> {
-                        videoStatusLabel.setText("摄像头启动失败！\n请检查系统权限或连接。");
-                        videoStatusLabel.setTextFill(Color.RED);
-                    });
-                    e.printStackTrace();
-                } finally {
-                    // 确保在任务结束时释放资源
-                    if (grabber != null) {
-                        try {
-                            grabber.stop();
-                            grabber.release();
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
-                    }
-                }
-                return null;
+        // 确保安全显示
+        Platform.runLater(() -> {
+            try {
+                primaryStage.show();
+                System.out.println("窗口已成功显示");
+            } catch (Exception e) {
+                System.err.println("显示窗口时出错: " + e.getMessage());
+                e.printStackTrace();
             }
-        };
-        Thread cameraThread = new Thread(cameraTask);
-        cameraThread.setDaemon(true);
-        cameraThread.start();
+        });
+
+        System.out.println("Vibecoding Helper 已启动！");
     }
 
-    @Override
-    public void stop() throws Exception {
-        // 在应用关闭时，确保摄像头资源被释放
-        stopCamera = true;
-        // 资源释放已移至后台任务的finally块中，这里可以简化
-        super.stop();
+    private void createVideoPlaceholder(BorderPane root) {
+        // 创建一个占位符区域，模拟视频显示
+        StackPane videoPane = new StackPane();
+        videoPane.setPrefSize(640, 480);
+        videoPane.setStyle("-fx-background-color: #2C2C2C; -fx-border-color: #666666; -fx-border-width: 2;");
+
+        VBox placeholder = new VBox(10);
+        placeholder.setAlignment(javafx.geometry.Pos.CENTER);
+
+        Label titleLabel = new Label("🎥 摄像头区域");
+        titleLabel.setTextFill(Color.WHITE);
+        titleLabel.setFont(Font.font("System", FontWeight.BOLD, 24));
+
+        videoStatusLabel = new Label("摄像头功能将在后续版本中实现");
+        videoStatusLabel.setTextFill(Color.LIGHTGRAY);
+        videoStatusLabel.setFont(Font.font("System", 14));
+
+        Label infoLabel = new Label("当前显示：UI界面演示版本");
+        infoLabel.setTextFill(Color.LIGHTBLUE);
+        infoLabel.setFont(Font.font("System", 12));
+
+        placeholder.getChildren().addAll(titleLabel, videoStatusLabel, infoLabel);
+        videoPane.getChildren().add(placeholder);
+
+        root.setCenter(videoPane);
     }
 
-    /**
-     * 创建右侧的控制面板
-     */
     private VBox createControlPanel() {
         VBox panel = new VBox(20);
         panel.setPadding(new Insets(10));
@@ -201,8 +162,6 @@ public class Main extends Application {
         return panel;
     }
 
-    // --- UI构建辅助方法 ---
-
     private Label createSectionLabel(String text) {
         Label label = new Label(text);
         label.setFont(Font.font("System", FontWeight.BOLD, 16));
@@ -224,12 +183,15 @@ public class Main extends Application {
             if (collaborateBtn.isSelected()) {
                 sessionState.presence = UserPresence.COLLABORATE;
                 statusLabel.setText("当前状态: 协作");
+                videoStatusLabel.setText("协作模式：准备与团队成员进行编程协作");
             } else if (focusBtn.isSelected()) {
                 sessionState.presence = UserPresence.FOCUS;
                 statusLabel.setText("当前状态: 专注");
+                videoStatusLabel.setText("专注模式：减少干扰，集中精力编程");
             } else if (awayBtn.isSelected()) {
                 sessionState.presence = UserPresence.AWAY;
                 statusLabel.setText("当前状态: 离开");
+                videoStatusLabel.setText("离开模式：暂时不参与协作");
             }
         });
 
@@ -242,7 +204,7 @@ public class Main extends Application {
 
         avatarCb.selectedProperty().addListener((obs, oldVal, newVal) -> {
             privacySettings.useAvatar = newVal;
-            blurBgCb.setDisable(newVal); // 使用虚拟形象时，禁用背景模糊选项
+            blurBgCb.setDisable(newVal);
             updatePrivacyLabel();
         });
         blurBgCb.selectedProperty().addListener((obs, oldVal, newVal) -> {
@@ -270,12 +232,14 @@ public class Main extends Application {
         VBox mixer = new VBox(5);
         mixer.getChildren().add(new Label("同伴音量 (Alice):"));
         Slider aliceSlider = new Slider(0, 1, 1);
-        aliceSlider.valueProperty().addListener((obs, oldVal, newVal) -> audioMixer.setVolume("user_Alice", newVal.floatValue()));
+        aliceSlider.valueProperty().addListener((obs, oldVal, newVal) ->
+            audioMixer.setVolume("user_Alice", newVal.floatValue()));
         mixer.getChildren().add(aliceSlider);
 
         mixer.getChildren().add(new Label("背景音乐:"));
         Slider musicSlider = new Slider(0, 1, 0.2);
-        musicSlider.valueProperty().addListener((obs, oldVal, newVal) -> audioMixer.setVolume("background_music", newVal.floatValue()));
+        musicSlider.valueProperty().addListener((obs, oldVal, newVal) ->
+            audioMixer.setVolume("background_music", newVal.floatValue()));
         mixer.getChildren().add(musicSlider);
 
         return mixer;
@@ -286,17 +250,48 @@ public class Main extends Application {
         Button thinkingBtn = new Button("🤔");
         Button celebrateBtn = new Button("🎉");
 
-        // 在实际应用中，这些按钮会通过网络发送事件
-        thumbsUpBtn.setOnAction(e -> System.out.println("交互: 发送 👍"));
-        thinkingBtn.setOnAction(e -> System.out.println("交互: 发送 🤔"));
-        celebrateBtn.setOnAction(e -> System.out.println("交互: 发送 🎉"));
+        thumbsUpBtn.setOnAction(e -> {
+            System.out.println("交互: 发送 👍");
+            showNotification("发送了赞同表情");
+        });
+        thinkingBtn.setOnAction(e -> {
+            System.out.println("交互: 发送 🤔");
+            showNotification("发送了思考表情");
+        });
+        celebrateBtn.setOnAction(e -> {
+            System.out.println("交互: 发送 🎉");
+            showNotification("发送了庆祝表情");
+        });
 
         return new HBox(10, thumbsUpBtn, thinkingBtn, celebrateBtn);
     }
 
+    private void showNotification(String message) {
+        // 在视频区域短暂显示通知
+        Platform.runLater(() -> {
+            String originalText = videoStatusLabel.getText();
+            videoStatusLabel.setText(message);
+            videoStatusLabel.setTextFill(Color.YELLOW);
+
+            // 2秒后恢复原文本
+            Task<Void> task = new Task<Void>() {
+                @Override
+                protected Void call() throws Exception {
+                    Thread.sleep(2000);
+                    return null;
+                }
+
+                @Override
+                protected void succeeded() {
+                    videoStatusLabel.setText(originalText);
+                    videoStatusLabel.setTextFill(Color.LIGHTGRAY);
+                }
+            };
+            new Thread(task).start();
+        });
+    }
 
     public static void main(String[] args) {
-        // 启动JavaFX应用
         launch(args);
     }
 }

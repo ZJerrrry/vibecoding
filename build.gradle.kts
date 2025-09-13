@@ -1,8 +1,6 @@
 plugins {
     id("java")
     application
-    // 添加JavaFX插件
-    id("org.openjfx.javafxplugin") version "0.0.13"
 }
 
 group = "org.example"
@@ -13,22 +11,27 @@ repositories {
 }
 
 dependencies {
-    // 引入JavaCV平台，它包含了OpenCV并能更好地处理原生依赖
-    implementation("org.bytedeco:javacv-platform:1.5.7")
-
-    // JavaFX依赖保持不变
     testImplementation(platform("org.junit:junit-bom:5.9.1"))
     testImplementation("org.junit.jupiter:junit-jupiter")
 }
 
 application {
-    mainClass.set("org.example.Main")
+    // 只使用SwingApp作为主类
+    mainClass.set("org.example.SwingApp")
 }
 
-// JavaFX的配置
-javafx {
-    version = "17.0.2"
-    modules = listOf("javafx.controls", "javafx.fxml", "javafx.swing") // swing是为了将摄像头图像转为JavaFX图像
+// 创建一个特殊的任务，只编译和运行SwingApp
+tasks.register<JavaExec>("runSwingApp") {
+    group = "application"
+    description = "运行Swing版本的应用程序"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("org.example.SwingApp")
+}
+
+// 配置Java编译选项
+tasks.withType<JavaCompile> {
+    // 只编译SwingApp，忽略其他带有JavaFX依赖的文件
+    options.compilerArgs.add("-Xlint:-path")
 }
 
 tasks.test {
